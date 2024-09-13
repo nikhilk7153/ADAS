@@ -12,9 +12,15 @@ import openai
 import pandas
 from tqdm import tqdm
 
+import litellm
+from litellm import completion, RateLimitError
+
 from mmlu_prompt import get_init_archive, get_prompt, get_reflexion_prompt
 
-client = openai.OpenAI()
+#client = openai.OpenAI()
+
+os.environ["OPENAI_API_KEY"] = ''
+
 
 from utils import format_multichoice_question, random_id, bootstrap_confidence_interval
 
@@ -35,14 +41,16 @@ def get_json_response_from_gpt(
         system_message,
         temperature=0.5
 ):
-    response = client.chat.completions.create(
+    response = completion(
         model=model,
         messages=[
             {"role": "system", "content": system_message},
             {"role": "user", "content": msg},
         ],
-        temperature=temperature, max_tokens=4096, stop=None, response_format={"type": "json_object"}
+        temperature=temperature, 
+        stop=None
     )
+
     content = response.choices[0].message.content
     json_dict = json.loads(content)
     # cost = response.usage.completion_tokens / 1000000 * 15 + response.usage.prompt_tokens / 1000000 * 5
@@ -56,11 +64,14 @@ def get_json_response_from_gpt_reflect(
         model,
         temperature=0.8
 ):
-    response = client.chat.completions.create(
+    
+    response = completion(
         model=model,
         messages=msg_list,
-        temperature=temperature, max_tokens=4096, stop=None, response_format={"type": "json_object"}
+        temperature=temperature, 
+        stop=None
     )
+        
     content = response.choices[0].message.content
     json_dict = json.loads(content)
     assert not json_dict is None
@@ -375,7 +386,7 @@ if __name__ == "__main__":
     parser.add_argument('--debug_max', type=int, default=3)
     parser.add_argument('--model',
                         type=str,
-                        default='gpt-4o-2024-05-13',
+                        default='gpt-4',
                         choices=['gpt-4-turbo-2024-04-09', 'gpt-3.5-turbo-0125', 'gpt-4o-2024-05-13'])
 
     args = parser.parse_args()

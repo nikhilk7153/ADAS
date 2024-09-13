@@ -11,30 +11,48 @@ import numpy as np
 import openai
 import pandas
 from tqdm import tqdm
-
+import litellm
+from litellm import completion, RateLimitError
 from medqa_prompt import get_init_archive, get_prompt, get_reflexion_prompt
+from utils import format_multichoice_question, random_id, bootstrap_confidence_interval
+
 
 client = openai.OpenAI()
 
-from utils import format_multichoice_question, random_id, bootstrap_confidence_interval
+
+os.environ["OPENAI_API_KEY"] = ""
+
+
+#litellm.set_verbose=True
 
 Info = namedtuple('Info', ['name', 'author', 'content', 'iteration_idx'])
 
-FORMAT_INST = lambda request_keys: f"""Reply EXACTLY with the following JSON format.\n{str(request_keys)}\nDO NOT MISS ANY REQUEST FIELDS and ensure that your response is a well-formed JSON object!\n"""
+FORMAT_INST = lambda request_keys: f"""Reply EXACTLY with the following JSON format.\n{str(request_keys)}\n DO NOT MISS ANY REQUEST FIELDS and ensure that your response is a well-formed JSON object!\n"""
 ROLE_DESC = lambda role: f"You are a {role}."
 SYSTEM_MSG = ""
 
-PRINT_LLM_DEBUG = False
+PRINT_LLM_DEBUG = True
 SEARCHING_MODE = True
 
-
-@backoff.on_exception(backoff.expo, openai.RateLimitError)
+@backoff.on_exception(backoff.expo, litellm.RateLimitError)
 def get_json_response_from_gpt(
         msg,
         model,
         system_message,
         temperature=0.5
 ):
+    
+    '''
+    response = completion(
+        model=model,
+        messages=messages=[
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": msg},
+        ],
+        temperature=temperature,
+    )
+    '''
+    
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -43,25 +61,43 @@ def get_json_response_from_gpt(
         ],
         temperature=temperature, max_tokens=4096, stop=None, response_format={"type": "json_object"}
     )
+  
+
     content = response.choices[0].message.content
     json_dict = json.loads(content)
+
+    print(content)
+
     # cost = response.usage.completion_tokens / 1000000 * 15 + response.usage.prompt_tokens / 1000000 * 5
     assert not json_dict is None
     return json_dict
 
 
-@backoff.on_exception(backoff.expo, openai.RateLimitError)
+@backoff.on_exception(backoff.expo, litellm.RateLimitError)
 def get_json_response_from_gpt_reflect(
         msg_list,
         model,
         temperature=0.8
 ):
+    '''
+    response = completion(
+        model=model,
+        messages=msg_list,
+        temperature=temperature,
+    )
+    '''
+
     response = client.chat.completions.create(
         model=model,
         messages=msg_list,
         temperature=temperature, max_tokens=4096, stop=None, response_format={"type": "json_object"}
     )
+  
+    
     content = response.choices[0].message.content
+
+    print(content)
+
     json_dict = json.loads(content)
     assert not json_dict is None
     return json_dict
@@ -73,7 +109,7 @@ class LLMAgentBase():
     """
 
     def __init__(self, output_fields: list, agent_name: str,
-                 role='helpful assistant', model='gpt-3.5-turbo-0125', temperature=0.5) -> None:
+                 role='helpful assistant', model='gpt-3.5-turbo', temperature=0.5) -> None:
         
         self.output_fields = output_fields
         self.agent_name = agent_name
@@ -92,19 +128,26 @@ class LLMAgentBase():
 
         # construct input infos text
         input_infos_text = ''
+
         for input_info in input_infos:
+
             if isinstance(input_info, Info):
                 (field_name, author, content, iteration_idx) = input_info
             else:
                 continue
+
             if author == self.__repr__():
                 author += ' (yourself)'
+
             if field_name == 'task':
                 input_infos_text += f'# Your Task:\n{content}\n\n'
+
             elif iteration_idx != -1:
                 input_infos_text += f'### {field_name} #{iteration_idx + 1} by {author}:\n{content}\n\n'
+
             else:
                 input_infos_text += f'### {field_name} by {author}:\n{content}\n\n'
+
 
         prompt = input_infos_text + instruction
         return system_prompt, prompt
@@ -123,13 +166,16 @@ class LLMAgentBase():
             for key in self.output_fields:
                 if not key in response_json and len(response_json) < len(self.output_fields):
                     response_json[key] = ''
+                    
             for key in copy.deepcopy(list(response_json.keys())):
                 if len(response_json) > len(self.output_fields) and not key in self.output_fields:
                     del response_json[key]
+
         output_infos = []
         for key, value in response_json.items():
             info = Info(key, self.__repr__(), value, iteration_idx)
             output_infos.append(info)
+
         return output_infos
 
     def __repr__(self):
@@ -163,12 +209,17 @@ def search(args):
 
         solution['generation'] = "initial"
         print(f"============Initial Archive: {solution['name']}=================")
+
+        acc_list = evaluate_forward_fn(args, solution["code"])
+
+        '''
         try:
             acc_list = evaluate_forward_fn(args, solution["code"])
         except Exception as e:
             print("During evaluating initial archive:")
             print(e)
             continue
+        '''
 
         fitness_str = bootstrap_confidence_interval(acc_list)
         solution['fitness'] = fitness_str
@@ -222,6 +273,7 @@ def search(args):
                     print(e)
                     continue
                 continue
+            
         if not acc_list:
             n -= 1
             continue
@@ -245,8 +297,10 @@ def search(args):
 def evaluate(args):
     file_path = os.path.join(args.save_dir, f"{args.expr_name}_run_archive.json")
     eval_file_path = str(os.path.join(args.save_dir, f"{args.expr_name}_run_archive.json")).strip(".json") + "_evaluate.json"
+    
     with open(file_path, 'r') as json_file:
         archive = json.load(json_file)
+
     eval_archive = []
     if os.path.exists(eval_file_path):
         with open(eval_file_path, 'r') as json_file:
@@ -262,11 +316,15 @@ def evaluate(args):
         sol = archive[current_idx]
         print(f"current_gen: {sol['generation']}, current_idx: {current_idx}")
         current_idx += 1
+
+    
         try:
             acc_list = evaluate_forward_fn(args, sol["code"])
         except Exception as e:
             print(e)
             continue
+   
+
         fitness_str = bootstrap_confidence_interval(acc_list)
         sol['test_fitness'] = fitness_str
         eval_archive.append(sol)
@@ -280,6 +338,7 @@ def evaluate(args):
 def evaluate_forward_fn(args, forward_str):
     # dynamically define forward()
     # modified from https://github.com/luchris429/DiscoPOP/blob/main/scripts/launch_evo.py
+
     namespace = {}
     exec(forward_str, globals(), namespace)
     names = list(namespace.keys())
@@ -308,10 +367,10 @@ def evaluate_forward_fn(args, forward_str):
         examples = [row.to_dict() for _, row in df_test.iterrows()]
         random.shuffle(examples)
 
-        examples = examples[args.valid_size:args.valid_size + args.test_size] * args.n_repreat
+        examples = examples[:args.test_size] * args.n_repreat
 
     questions = [format_multichoice_question(example) for example in examples]
-    answers = [LETTER_TO_INDEX[example['Answer']] for example in examples]
+    answers = [LETTER_TO_INDEX[example['answer_idx']] for example in examples]
 
     print(f"problem length: {len(examples)}")
     max_workers = min(len(examples), args.max_workers) if args.multiprocessing else 1
@@ -327,8 +386,12 @@ def evaluate_forward_fn(args, forward_str):
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         results = list(tqdm(executor.map(agentSystem.forward, task_queue), total=len(task_queue)))
 
+   
+
     for q_idx, res in enumerate(results):
+        
         try:
+            
             if isinstance(res, str) and res in LETTER_TO_INDEX:
                 predicted_idx = LETTER_TO_INDEX[res]
             elif 'A)' in res:
@@ -342,8 +405,10 @@ def evaluate_forward_fn(args, forward_str):
             elif isinstance(res, list):
                 try_res = res[1]
                 predicted_idx = LETTER_TO_INDEX[try_res.content]
+
             elif res.content in LETTER_TO_INDEX:
                 predicted_idx = LETTER_TO_INDEX[res.content]
+                
             elif 'A)' in res.content:
                 predicted_idx = 0
             elif 'B)' in res.content:
@@ -356,7 +421,10 @@ def evaluate_forward_fn(args, forward_str):
                 print(f"error in q {q_idx}")
                 acc_list.append(0)
                 continue
+
         except Exception as e:
+            print("Exception " + str(e))
+
             acc_list.append(0)
             continue
 
@@ -364,6 +432,7 @@ def evaluate_forward_fn(args, forward_str):
             acc_list.append(1)
         else:
             acc_list.append(0)
+
     print(f"acc: {bootstrap_confidence_interval(acc_list)}")
     return acc_list
 
@@ -371,7 +440,7 @@ def evaluate_forward_fn(args, forward_str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--val_file', type=str, default="/Users/nikhilkhandekar/Documents/ADAS/medqa_test.csv")
+    parser.add_argument('--val_file', type=str, default="/Users/nikhilkhandekar/Documents/ADAS/medqa_val.csv")
     parser.add_argument('--test_file', type=str, default="/Users/nikhilkhandekar/Documents/ADAS/medqa_test.csv")
 
     parser.add_argument('--valid_size', type=int, default=8)
@@ -387,10 +456,11 @@ if __name__ == "__main__":
     parser.add_argument('--debug_max', type=int, default=3)
     parser.add_argument('--model',
                         type=str,
-                        default='gpt-4o-2024-05-13',
+                        default='gpt-4',
                         choices=['gpt-4-turbo-2024-04-09', 'gpt-3.5-turbo-0125', 'gpt-4o-2024-05-13'])
 
     args = parser.parse_args()
+    
     # search
     SEARCHING_MODE = True
     search(args)

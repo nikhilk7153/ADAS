@@ -106,7 +106,7 @@ LLM_debate = {
     debate_instruction = "Given solutions to the problem from other agents, consider their opinions as additional advice. Please think carefully and provide an updated answer."
     
     # Initialize debate agents with different roles and a moderate temperature for varied reasoning
-    debate_agents = [LLMAgentBase(['thinking', 'answer'], 'Debate Agent', temperature=0.8, role=role) for role in ['Biology Expert', 'Physics Expert', 'Chemistry Expert', 'Science Generalist']]
+    debate_agents = [LLMAgentBase(['thinking', 'answer'], 'Debate Agent', temperature=0.8, role=role) for role in ['General Practioner', 'Cardiologist', 'Neurologist', 'Pharmacologist']]
 
     # Instruction for final decision-making based on all debates and solutions
     final_decision_instruction = "Given all the above thinking and answers, reason over them carefully and provide a final answer."
@@ -137,7 +137,7 @@ Take_a_step_back = {"thought": "Let LLM first think about the principles involve
                     "name": "Step-back Abstraction",
                     "code": """def forward(self, taskInfo):
         # Instruction for understanding the principles involved in the task
-        principle_instruction = "What are the physics, chemistry or biology principles and concepts involved in solving this task? First think step by step. Then list all involved principles and explain them."
+        principle_instruction = "What are the medical principles and concepts involved in solving this task? First think step by step. Then list all involved principles and explain them."
         
         # Instruction for solving the task based on the principles
         cot_instruction = "Given the question and the involved principle behind the question, think step by step and then solve the task."
@@ -153,7 +153,7 @@ Take_a_step_back = {"thought": "Let LLM first think about the principles involve
         thinking, answer = cot_agent([taskInfo, thinking, principle], cot_instruction)
         return answer
 """
-                    }
+    }
 
 QD = {"thought": "Similar to Quality-Diversity methods, let LLM generate multiple diverse interesting solutions could help. By encouraging the model to explore different reasoning paths, we can increase the chances of finding the best solution.",
       "name": "Quality-Diversity",
@@ -198,20 +198,20 @@ Role_Assignment = {"thought": "Similar to Auto-GPT and expert prompting, we can 
                    "code": """def forward(self, taskInfo):
         # Instruction for step-by-step reasoning
         cot_instruction = "Please think step by step and then solve the task."
-        expert_agents = [LLMAgentBase(['thinking', 'answer'], 'Expert Agent', role=role) for role in ['Physics Expert', 'Chemistry Expert', 'Biology Expert', 'Science Generalist']]
+        expert_agents = [LLMAgentBase(['thinking', 'answer'], 'Expert Agent', role=role) for role in ['General Practitioner', 'Cardiologist Expert', 'Neurologist Expert', 'Pharmacologist Expert']]
 
         # Instruction for routing the task to the appropriate expert
-        routing_instruction = "Given the task, please choose an Expert to answer the question. Choose from: Physics, Chemistry, Biology Expert, or Science Generalist."
+        routing_instruction = "Given the task, please choose an Expert to answer the question. Choose from: General Practitioner, Cardiologist, Neurologist, or Pharmacologist."
         routing_agent = LLMAgentBase(['choice'], 'Routing agent')
 
         # Get the choice of expert to route the task
         choice = routing_agent([taskInfo], routing_instruction)[0]
 
-        if 'physics' in choice.content.lower():
+        if 'pharmacologist' in choice.content.lower():
             expert_id = 0
-        elif 'chemistry' in choice.content.lower():
+        elif 'cardiologist' in choice.content.lower():
             expert_id = 1
-        elif 'biology' in choice.content.lower():
+        elif 'nerologist' in choice.content.lower():
             expert_id = 2
         else:
             expert_id = 3 # Default to Science Generalist
@@ -531,7 +531,9 @@ Put your new reflection thinking in "reflection". Repeat the previous "thought" 
 """
 
 def get_init_archive():
-    return [COT, COT_SC, Reflexion, LLM_debate, Take_a_step_back, QD, Role_Assignment]
+    #return [COT, COT_SC, Reflexion, LLM_debate, Take_a_step_back, QD, Role_Assignment]
+    return [COT, COT_SC, Reflexion, LLM_debate, Take_a_step_back, QD]
+
 
 
 def get_prompt(current_archive, adaptive=False):

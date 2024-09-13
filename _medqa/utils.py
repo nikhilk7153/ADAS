@@ -2,6 +2,9 @@ import random
 import string
 from collections import namedtuple
 import numpy as np
+import json
+import re
+import ast
 
 Example = namedtuple('Example', ['question', 'choice1', 'choice2', 'choice3', 'choice4', 'correct_index'])
 
@@ -18,7 +21,25 @@ Answer the following multiple choice question.
 
 
 def format_multichoice_question(row):
-    return QUERY_TEMPLATE_MULTICHOICE.format(**row)
+
+    options = ast.literal_eval(row['options'])
+
+   #print(options)
+
+    #options = json.loads(options_str)
+
+    query_string = QUERY_TEMPLATE_MULTICHOICE.format(
+            Question=row['question'],
+            A=options['A'],
+            B=options['B'],
+            C=options['C'],
+            D=options['D']
+    )
+    
+    #print(query_string)
+
+
+    return query_string
 
 
 def random_id(length=4):
